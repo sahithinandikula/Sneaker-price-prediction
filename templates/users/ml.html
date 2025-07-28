@@ -1,40 +1,143 @@
-{%extends 'users/userbase.html'%}
-{%block contents%}
-<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/2.2.2/jquery.min.js"></script>
-<link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.16/css/jquery.dataTables.css">
-<script type="text/javascript" src="https://cdn.datatables.net/1.10.16/js/jquery.dataTables.js"></script>
-<script type="text/javascript">(document).ready(function(){('table').DataTable({
-    "pageLength": 50
-});});</script>
-        <div class="section-header">
-            <h2 class="section-title wow fadeInDown">Machine Learning Results</h2>
-            <p class="wow fadeInDown"></p>
+{% extends 'users/userbase.html' %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h3>Sneaker Price Prediction</h3>
+                </div>
+                <div class="card-body">
+                    {% if messages %}
+                        {% for message in messages %}
+                            <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+                        {% endfor %}
+                    {% endif %}
+                    
+                    <div class="mb-4">
+                        <button id="trainBtn" class="btn btn-success">Train Model</button>
+                        <small class="text-muted ml-2">This will train the model using the latest data</small>
+                    </div>
+                    
+                    <hr>
+                    
+                    <h4 class="mb-3">Make a Prediction</h4>
+                    <form id="predictionForm">
+                        {% csrf_token %}
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="brand">Brand</label>
+                                    <select class="form-control" id="brand" required>
+                                        <option value="">Select Brand</option>
+                                        <option value="Nike">Nike</option>
+                                        <option value="Adidas">Adidas</option>
+                                        <option value="Jordan">Jordan</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="sneakerName">Sneaker Name</label>
+                                    <input type="text" class="form-control" id="sneakerName" required>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="retailPrice">Retail Price ($)</label>
+                                    <input type="number" step="0.01" class="form-control" id="retailPrice" required>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="releaseDate">Release Date</label>
+                                    <input type="date" class="form-control" id="releaseDate" required>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="orderDate">Order Date</label>
+                                    <input type="date" class="form-control" id="orderDate" required>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="buyerRegion">Buyer Region</label>
+                                    <select class="form-control" id="buyerRegion" required>
+                                        <option value="">Select Region</option>
+                                        <option value="California">California</option>
+                                        <option value="New York">New York</option>
+                                        <option value="Florida">Florida</option>
+                                        <option value="Texas">Texas</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary mt-3">Predict Price</button>
+                    </form>
+                    
+                    <div id="predictionResult" class="mt-4 p-3 bg-light rounded" style="display:none;">
+                        <h5>Predicted Price: <span id="predictedPrice" class="font-weight-bold"></span></h5>
+                    </div>
+                </div>
+            </div>
         </div>
+    </div>
+</div>
 
-        <div class="row" style="margin:10px ;">
-            
-            <!-- <pre>{{data|safe}}</pre> -->
-        <table border="1">
-            <tr>
-                <th>MAE</th>
-                <th>MSE</th>
-                <th>RMSE</th>
-            </tr>
-            <tr>
-                <td>{{ MAE }}</td>
-                <td>{{ MSE }}</td>
-                <td>{{ RMSE }}</td>
-            </tr>
-        </table>
-        
-        <!-- <h2>{{ MAE }}</h2><br>
-            <h2>{{ MSE }}</h2><br>
-            <h2>{{ RMSE }}</h2> -->
+<script>
+document.getElementById('trainBtn').addEventListener('click', function() {
+    if (confirm('Are you sure you want to train the model? This may take a few minutes.')) {
+        fetch('/ml/train/', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': '{{ csrf_token }}',
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error: ' + data.error);
+            } else {
+                location.reload();
+            }
+        });
+    }
+});
 
-
-
-        </div>
-
-
-
-{%endblock%}
+document.getElementById('predictionForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = {
+        'Brand': document.getElementById('brand').value,
+        'Sneaker Name': document.getElementById('sneakerName').value,
+        'Retail Price': parseFloat(document.getElementById('retailPrice').value),
+        'Release Date': document.getElementById('releaseDate').value,
+        'Order Date': document.getElementById('orderDate').value,
+        'Buyer Region': document.getElementById('buyerRegion').value
+    };
+    
+    fetch('/ml/predict/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Error: ' + data.error);
+        } else {
+            document.getElementById('predictedPrice').textContent = '$' + data.predicted_price.toFixed(2);
+            document.getElementById('predictionResult').style.display = 'block';
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while making the prediction.');
+    });
+});
+</script>
+{% endblock %}
