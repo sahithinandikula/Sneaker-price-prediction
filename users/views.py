@@ -16,6 +16,7 @@ from xgboost import XGBRegressor
 from sklearn import metrics
 from users.forms import UserRegistrationForm
 from users.models import UserRegistrationModel
+from django.views.decorators.http import require_http_methods
 
 # Model classes for modularity
 class BaseModel:
@@ -329,6 +330,136 @@ def prediction(request):
         except Exception as e:
             return render(request, 'users/prediction.html', {'error': str(e)})
     return render(request, 'users/prediction.html')
+
+# ===================== CSV Validation and Upload =====================
+REQUIRED_COLUMNS_CANON = {
+    'brand': {'Brand'},
+    'model': {'Model', 'Sneaker Name', 'Sneaker_Name'},
+    'release_date': {'Release Date', 'Release_Date'},
+    'retail_price': {'Retail Price', 'Retail_Price'},
+    'sale_price': {'Sale Price', 'Sale_Price'},
+    'condition': {'Condition'},
+    'region': {'Region', 'Buyer Region', 'Buyer'}
+}
+
+CRITICAL_FIELDS = ['brand', 'model', 'release_date', 'retail_price', 'sale_price', 'region']
+
+def _canonicalize_columns(df: pd.DataFrame):
+    colmap = {}
+    for canon, variants in REQUIRED_COLUMNS_CANON.items():
+        for v in df.columns:
+            if v.strip() in variants:
+                colmap[v] = canon
+                break
+    return colmap
+
+def validate_sneaker_csv(file_obj):
+    errors = []
+    warnings = []
+
+    try:
+        df = pd.read_csv(file_obj)
+    except Exception as e:
+        return False, [f"Unable to read CSV: {e}"], [], None
+
+    colmap = _canonicalize_columns(df)
+    df = df.rename(columns=colmap)
+
+    missing = [c for c in REQUIRED_COLUMNS_CANON.keys() if c not in df.columns]
+    if missing:
+        for m in missing:
+            examples = ", ".join(sorted(REQUIRED_COLUMNS_CANON[m]))
+            errors.append(f"Missing required column: '{m}' (accepted names: {examples})")
+
+    if errors:
+        return False, errors, warnings, None
+
+    for price_col in ['retail_price', 'sale_price']:
+        try:
+            df[price_col] = pd.to_numeric(df[price_col], errors='coerce')
+        except Exception:
+            errors.append(f"Column '{price_col}' must be numeric")
+
+    try:
+        df['release_date'] = pd.to_datetime(df['release_date'], errors='coerce')
+    except Exception:
+        errors.append("Column 'release_date' must be a valid date")
+
+    for field in CRITICAL_FIELDS:
+        if df[field].isna().any():
+            errors.append(f"Column '{field}' contains missing values")
+
+    if (df['retail_price'] < 0).any() or (df['sale_price'] < 0).any():
+        warnings.append("Negative prices detected; please verify.")
+
+    if errors:
+        return False, errors, warnings, None
+
+    preview = df.head(10)
+    return True, [], warnings, preview
+
+@require_http_methods(["GET", "POST"])
+def upload_data(request):
+    if request.method == "POST":
+        f = request.FILES.get("file")
+        if not f:
+            messages.error(request, "Please choose a CSV file to upload.")
+            return redirect('upload_data')
+
+        is_valid, errors, warnings, preview = validate_sneaker_csv(f)
+
+        if not is_valid:
+            for e in errors:
+                messages.error(request, e)
+            for w in warnings:
+                messages.warning(request, w)
+            if errors:
+                request.session['upload_errors'] = errors
+            return redirect('upload_data')
+
+        try:
+            upload_dir = os.path.join(settings.MEDIA_ROOT, "uploads")
+            os.makedirs(upload_dir, exist_ok=True)
+            from django.utils import timezone
+            ts = timezone.now().strftime("%Y%m%d-%H%M%S")
+            safe_name = f.name.replace(" ", "_")
+            path = os.path.join(upload_dir, f"{ts}_{safe_name}")
+
+            try:
+                f.seek(0)
+            except Exception:
+                pass
+
+            with open(path, "wb") as out:
+                for chunk in f.chunks():
+                    out.write(chunk)
+
+            try:
+                preview_html = preview.to_html(classes="table table-sm table-striped", index=False)
+                request.session['upload_preview_html'] = preview_html
+            except Exception:
+                pass
+
+            messages.success(request, "CSV is valid and has been uploaded successfully.")
+            return redirect('upload_data')
+        except Exception as e:
+            messages.error(request, f"Failed to save file: {e}")
+            return redirect('upload_data')
+
+    context = {}
+    try:
+        preview_html = request.session.pop('upload_preview_html')
+        if preview_html:
+            context['preview_html'] = preview_html
+    except KeyError:
+        pass
+    try:
+        upload_errors = request.session.pop('upload_errors')
+        if upload_errors:
+            context['upload_errors'] = upload_errors
+    except KeyError:
+        pass
+    return render(request, "users/upload.html", context)
 
 def prediction(request):
     if request.method == "POST":
