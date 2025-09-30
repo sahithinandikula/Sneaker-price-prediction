@@ -1,7 +1,8 @@
 # SNEAKER-PRICE-PR/users/views.py
-from django.shortcuts import render, HttpResponse
+from django.shortcuts import render, HttpResponse, redirect
 from django.contrib import messages
 from django.conf import settings
+import os
 
 import pandas as pd
 import numpy as np
@@ -13,6 +14,8 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import SVR
 from xgboost import XGBRegressor
 from sklearn import metrics
+from users.forms import UserRegistrationForm
+from users.models import UserRegistrationModel
 
 # Model classes for modularity
 class BaseModel:
@@ -164,7 +167,7 @@ def UserHome(request):
     return render(request, 'users/UserHomePage.html', {})
 
 def DatasetView(request):
-    path = settings.MEDIA_ROOT + "//" + 'Clean_Shoe_Data.csv'
+    path = os.path.join(settings.MEDIA_ROOT, 'Clean_Shoe_Data.csv')
     try:
         df = pd.read_csv(path, nrows=100)
         df_html = df.to_html()
@@ -173,17 +176,8 @@ def DatasetView(request):
         return render(request, 'users/viewdataset.html', {'data': f'Error loading data: {str(e)}'})
 
 def machinelearning(request):
-    path = settings.MEDIA_ROOT + "//" + "Clean_Shoe_Data.csv"
-    try:
-        df = pd.read_csv(path, parse_dates=True)
-
-    df = pd.read_csv(path, nrows=100)
-    df = df.to_html()
-    return render(request, 'users/viewdataset.html', {'data': df})
-
-def machinelearning(request):
     # Reading in the data
-    path = settings.MEDIA_ROOT + "\\" + "Clean_Shoe_Data.csv"
+    path = os.path.join(settings.MEDIA_ROOT, "Clean_Shoe_Data.csv")
 
     shoe_data = pd.read_csv(path, parse_dates = True)
     df = shoe_data.copy()
@@ -217,7 +211,7 @@ def machinelearning(request):
     X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.2)
     object_cols = ['Sneaker_Name', 'Buyer', 'Brand']
     # Apply one-hot encoder to each column with categorical data
-    OH_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+    OH_encoder = OneHotEncoder(handle_unknown='ignore', sparse=False)
     OH_cols_train = pd.DataFrame(OH_encoder.fit_transform(X_train[object_cols]))
     OH_cols_valid = pd.DataFrame(OH_encoder.transform(X_valid[object_cols]))
 
@@ -251,116 +245,90 @@ def machinelearning(request):
 
 def prediction(request):
     if request.method == "POST":
-        import pandas as pd
-        from django.conf import settings
+        try:
+            path = os.path.join(settings.MEDIA_ROOT, "Clean_Shoe_Data.csv")
+            df = pd.read_csv(path, parse_dates=True)
+            df = df.rename(columns={
+                "Order Date": "Order_date",
+                "Sneaker Name": "Sneaker_Name",
+                "Sale Price": "Sale_Price",
+                "Retail Price": "Retail_Price",
+                "Release Date": "Release_Date",
+                "Shoe Size": "Shoe_Size",
+                "Buyer Region": "Buyer"
+            })
 
-        Order_date = request.POST.get("Order_date")
-        Brand = request.POST.get("Brand")
-        Sneaker_Name = request.POST.get("Sneaker_Name")
-        Retail_Price = request.POST.get("Retail_Price")
-        Release_Date = request.POST.get("Release_Date")
-        Shoe_Size = request.POST.get("Shoe_Size")
-        Buyer = request.POST.get("Buyer")
-        print(Buyer)
+            def safe_date_convert(date_str):
+                try:
+                    return pd.to_datetime(date_str, errors='coerce').toordinal()
+                except Exception:
+                    return dt.datetime(2023, 1, 1).toordinal()
 
-        path = settings.MEDIA_ROOT + "\\" + "Clean_Shoe_Data.csv"
+            Order_date = safe_date_convert(request.POST.get("Order_date"))
+            Release_Date = safe_date_convert(request.POST.get("Release_Date"))
+            Retail_Price = float(request.POST.get("Retail_Price") or 0)
+            Shoe_Size = float(request.POST.get("Shoe_Size") or 0)
+            Brand = request.POST.get("Brand", "Unknown")
+            Sneaker_Name = request.POST.get("Sneaker_Name", "Unknown")
+            Buyer = request.POST.get("Buyer", "Unknown")
 
-        shoe_data = pd.read_csv(path, parse_dates = True)
-        df = shoe_data.copy()
-        df
-        # Checking for missing values in the dataset
-        nulls = pd.concat([df.isnull().sum()], axis=1)
-        nulls[nulls.sum(axis=1) > 0]
-        
-        # Renaming columns to get rid of spaces 
-main
-        df = df.rename(columns={
-            "Order Date": "Order_date",
-            "Sneaker Name": "Sneaker_Name",
-            "Sale Price": "Sale_Price",
-            "Retail Price": "Retail_Price",
-            "Release Date": "Release_Date",
-            "Shoe Size": "Shoe_Size",
-            "Buyer Region": "Buyer"
-        })
-        
-        def safe_date_convert(date_series):
-            try:
-                converted = pd.to_datetime(date_series, errors='coerce')
-                converted = converted.fillna(pd.Timestamp('2023-01-01'))
-                return converted.map(dt.datetime.toordinal)
-            except Exception as e:
-                print(f"Date conversion error: {e}")
-                return pd.Series([dt.datetime(2023, 1, 1).toordinal()] * len(date_series))
-        
-        df['Order_date'] = safe_date_convert(df['Order_date'])
-        df['Release_Date'] = safe_date_convert(df['Release_Date'])
-        
-        df = df.dropna(subset=['Sale_Price'])
-        df = df.fillna({
-            'Brand': 'Unknown',
-            'Sneaker_Name': 'Unknown',
-            'Buyer': 'Unknown',
-            'Retail_Price': df['Retail_Price'].median(),
-            'Shoe_Size': df['Shoe_Size'].median()
-        })
+            X = df.drop(['Sale_Price'], axis=1)
+            y = df['Sale_Price']
+            X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.2, random_state=42)
 
-        X = df.drop(['Sale_Price'], axis=1)
-        y = df['Sale_Price']
-        
-        object_cols = ['Sneaker_Name', 'Buyer', 'Brand']
-main
-        OH_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
-        X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.2, random_state=42)
-        
-        # Apply one-hot encoder to each column with categorical data
-        OH_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
- main
-        OH_cols_train = pd.DataFrame(OH_encoder.fit_transform(X_train[object_cols]))
-        OH_cols_valid = pd.DataFrame(OH_encoder.transform(X_valid[object_cols]))
-        
-        OH_cols_train.index = X_train.index
-        OH_cols_valid.index = X_valid.index
-        
-        OH_cols_train.columns = OH_encoder.get_feature_names_out(object_cols)
-        OH_cols_valid.columns = OH_encoder.get_feature_names_out(object_cols)
-        
-        num_X_train = X_train.drop(object_cols, axis=1)
-        num_X_valid = X_valid.drop(object_cols, axis=1)
-        
-        OH_X_train = pd.concat([num_X_train, OH_cols_train], axis=1)
-        OH_X_valid = pd.concat([num_X_valid, OH_cols_valid], axis=1)
+            object_cols = ['Sneaker_Name', 'Buyer', 'Brand']
+            OH_encoder = OneHotEncoder(handle_unknown='ignore', sparse=False)
+            OH_cols_train = pd.DataFrame(OH_encoder.fit_transform(X_train[object_cols]))
+            OH_cols_train.index = X_train.index
+            OH_cols_train.columns = OH_encoder.get_feature_names_out(object_cols)
 
-        # Initialize and train models
-        models = {
-            'Linear Regression': LinearRegressionModel(),
-            'Random Forest': RandomForestModel(),
-            'XGBoost': XGBoostModel(),
-            'SVR': SVRModel()
-        }
-        
-        comparison = ModelComparison()
-        for name, model in models.items():
-            comparison.add_model(name, model)
-        
-        comparison.train_all_models(OH_X_train, y_train)
-        comparison.evaluate_all_models(OH_X_valid, y_valid)
-        
-        # Prepare chart data
-        chart_data = {
-            'labels': list(comparison.results.keys()),
-            'r2_scores': [comparison.results[model]['r2_score'] for model in comparison.results],
-            'mae': [comparison.results[model]['mae'] for model in comparison.results],
-            'rmse': [comparison.results[model]['rmse'] for model in comparison.results]
-        }
-        
-        return render(request, "users/ml.html", {
-            'results': comparison.results,
-            'chart_data': chart_data,
-            'best_model': max(comparison.results, key=lambda x: comparison.results[x]['r2_score'])
-        })
-    except Exception as e:
-        return render(request, "users/ml.html", {'error': str(e)})
+            num_X_train = X_train.drop(object_cols, axis=1)
+            OH_X_train = pd.concat([num_X_train, OH_cols_train], axis=1)
+
+            lm = RandomForestRegressor(n_estimators=100, random_state=42)
+            lm.fit(OH_X_train, y_train)
+
+            new_data = pd.DataFrame({
+                'Order_date': [Order_date],
+                'Brand': [Brand],
+                'Sneaker_Name': [Sneaker_Name],
+                'Retail_Price': [Retail_Price],
+                'Release_Date': [Release_Date],
+                'Shoe_Size': [Shoe_Size],
+                'Buyer': [Buyer]
+            })
+
+            new_data_object_cols = new_data[object_cols]
+            OH_cols_new = pd.DataFrame(OH_encoder.transform(new_data_object_cols))
+            OH_cols_new.index = new_data.index
+            OH_cols_new.columns = OH_encoder.get_feature_names_out(object_cols)
+
+            num_X_new = new_data.drop(object_cols, axis=1)
+            OH_X_new = pd.concat([num_X_new, OH_cols_new], axis=1)
+
+            for col in OH_X_train.columns:
+                if col not in OH_X_new.columns:
+                    OH_X_new[col] = 0
+            OH_X_new = OH_X_new[OH_X_train.columns]
+
+            y_pred = lm.predict(OH_X_new)
+            predicted_price = max(round(float(y_pred[0]), 2), 0)
+
+            return render(request, 'users/prediction.html', {
+                'y_pred': [predicted_price],
+                'input_data': {
+                    'Order_date': request.POST.get("Order_date"),
+                    'Brand': Brand,
+                    'Sneaker_Name': Sneaker_Name,
+                    'Retail_Price': Retail_Price,
+                    'Release_Date': request.POST.get("Release_Date"),
+                    'Shoe_Size': Shoe_Size,
+                    'Buyer': Buyer
+                }
+            })
+        except Exception as e:
+            return render(request, 'users/prediction.html', {'error': str(e)})
+    return render(request, 'users/prediction.html')
 
 def prediction(request):
     if request.method == "POST":
@@ -448,9 +416,4 @@ def prediction(request):
             })
         except Exception as e:
             return render(request, 'users/prediction.html', {'error': str(e)})
-    
-main
     return render(request, 'users/prediction.html')
-
-
- main
