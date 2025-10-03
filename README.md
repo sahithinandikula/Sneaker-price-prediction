@@ -115,8 +115,8 @@ Sneaker-price-prediction/
 
 1. **Clone the repository**
 ```bash
-   git clone https://github.com/yourusername/sneaker-price-prediction.git
-   cd sneaker-price-prediction/price\ prediction
+   git clone https://github.com/yourusername/Sneaker-price-prediction.git
+   cd Sneaker-price-prediction
    ```
 
 
