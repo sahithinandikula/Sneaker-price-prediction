@@ -23,9 +23,9 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path("", mainView.index, name="index"),
     path("index/", mainView.index, name="index"),
-    path("AdminLogin/", mainView.AdminLogin, name="AdminLogin"),
-    path("UserLogin/", mainView.UserLogin, name="UserLogin"),
-    path("UserRegister/", mainView.UserRegister, name="UserRegister"),
+    path("AdminLogin/", mainView.admin_login, name="AdminLogin"),
+    path("UserLogin/", mainView.user_login, name="UserLogin"),
+    path("UserRegister/", mainView.user_register, name="UserRegister"),
 
     # Admin views
     path("AdminHome/", admins.AdminHome, name="AdminHome"),
@@ -42,6 +42,9 @@ urlpatterns = [
     path("Datasetview/", usr.DatasetView, name="Datasetview"),
     path("machinelearning/",usr.machinelearning,name="machinelearning"),
     path("prediction/",usr.prediction,name="prediction"),
+    path("upload-data/", usr.upload_data, name="upload_data"),
+    # Optional template download if you keep the endpoint available
+    # path("download-template/", usr.download_template, name="download_template"),
 
 
 ]

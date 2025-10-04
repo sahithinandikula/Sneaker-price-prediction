@@ -1,10 +1,8 @@
-from ast import alias
-from concurrent.futures import process
-from django.shortcuts import render
-
-# Create your views here.
-from django.shortcuts import render, HttpResponse
+# SNEAKER-PRICE-PR/users/views.py
+from django.shortcuts import render, HttpResponse, redirect
 from django.contrib import messages
+from django.conf import settings
+import os
 
 import ThePricePredictionOfsneakersBasedOnMachineLearning
 
@@ -23,6 +21,9 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn import metrics
+from users.forms import UserRegistrationForm
+from users.models import UserRegistrationModel
+from django.views.decorators.http import require_http_methods
 from sklearn.metrics import classification_report
 
 
@@ -76,6 +77,13 @@ def UserHome(request):
     return render(request, 'users/UserHomePage.html', {})
 
 def DatasetView(request):
+    path = os.path.join(settings.MEDIA_ROOT, 'Clean_Shoe_Data.csv')
+    try:
+        df = pd.read_csv(path, nrows=100)
+        df_html = df.to_html()
+        return render(request, 'users/viewdataset.html', {'data': df_html})
+    except Exception as e:
+        return render(request, 'users/viewdataset.html', {'data': f'Error loading data: {str(e)}'})
     path = settings.MEDIA_ROOT + "//" + 'Clean_Shoe_Data.csv'
     df = pd.read_csv(path, nrows=100)
     df = df.to_html()
@@ -83,7 +91,7 @@ def DatasetView(request):
 
 def machinelearning(request):
     # Reading in the data
-    path = settings.MEDIA_ROOT + "\\" + "Clean_Shoe_Data.csv"
+    path = os.path.join(settings.MEDIA_ROOT, "Clean_Shoe_Data.csv")
 
     shoe_data = pd.read_csv(path, parse_dates = True)
     df = shoe_data.copy()
@@ -117,7 +125,7 @@ def machinelearning(request):
     X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.2)
     object_cols = ['Sneaker_Name', 'Buyer', 'Brand']
     # Apply one-hot encoder to each column with categorical data
-    OH_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+    OH_encoder = OneHotEncoder(handle_unknown='ignore', sparse=False)
     OH_cols_train = pd.DataFrame(OH_encoder.fit_transform(X_train[object_cols]))
     OH_cols_valid = pd.DataFrame(OH_encoder.transform(X_valid[object_cols]))
 
@@ -151,6 +159,308 @@ def machinelearning(request):
 
 def prediction(request):
     if request.method == "POST":
+        try:
+            path = os.path.join(settings.MEDIA_ROOT, "Clean_Shoe_Data.csv")
+            df = pd.read_csv(path, parse_dates=True)
+            df = df.rename(columns={
+                "Order Date": "Order_date",
+                "Sneaker Name": "Sneaker_Name",
+                "Sale Price": "Sale_Price",
+                "Retail Price": "Retail_Price",
+                "Release Date": "Release_Date",
+                "Shoe Size": "Shoe_Size",
+                "Buyer Region": "Buyer"
+            })
+
+            def safe_date_convert(date_str):
+                try:
+                    return pd.to_datetime(date_str, errors='coerce').toordinal()
+                except Exception:
+                    return dt.datetime(2023, 1, 1).toordinal()
+
+            Order_date = safe_date_convert(request.POST.get("Order_date"))
+            Release_Date = safe_date_convert(request.POST.get("Release_Date"))
+            Retail_Price = float(request.POST.get("Retail_Price") or 0)
+            Shoe_Size = float(request.POST.get("Shoe_Size") or 0)
+            Brand = request.POST.get("Brand", "Unknown")
+            Sneaker_Name = request.POST.get("Sneaker_Name", "Unknown")
+            Buyer = request.POST.get("Buyer", "Unknown")
+
+            X = df.drop(['Sale_Price'], axis=1)
+            y = df['Sale_Price']
+            X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.2, random_state=42)
+
+            object_cols = ['Sneaker_Name', 'Buyer', 'Brand']
+            OH_encoder = OneHotEncoder(handle_unknown='ignore', sparse=False)
+            OH_cols_train = pd.DataFrame(OH_encoder.fit_transform(X_train[object_cols]))
+            OH_cols_train.index = X_train.index
+            OH_cols_train.columns = OH_encoder.get_feature_names_out(object_cols)
+
+            num_X_train = X_train.drop(object_cols, axis=1)
+            OH_X_train = pd.concat([num_X_train, OH_cols_train], axis=1)
+
+            lm = RandomForestRegressor(n_estimators=100, random_state=42)
+            lm.fit(OH_X_train, y_train)
+
+            new_data = pd.DataFrame({
+                'Order_date': [Order_date],
+                'Brand': [Brand],
+                'Sneaker_Name': [Sneaker_Name],
+                'Retail_Price': [Retail_Price],
+                'Release_Date': [Release_Date],
+                'Shoe_Size': [Shoe_Size],
+                'Buyer': [Buyer]
+            })
+
+            new_data_object_cols = new_data[object_cols]
+            OH_cols_new = pd.DataFrame(OH_encoder.transform(new_data_object_cols))
+            OH_cols_new.index = new_data.index
+            OH_cols_new.columns = OH_encoder.get_feature_names_out(object_cols)
+
+            num_X_new = new_data.drop(object_cols, axis=1)
+            OH_X_new = pd.concat([num_X_new, OH_cols_new], axis=1)
+
+            for col in OH_X_train.columns:
+                if col not in OH_X_new.columns:
+                    OH_X_new[col] = 0
+            OH_X_new = OH_X_new[OH_X_train.columns]
+
+            y_pred = lm.predict(OH_X_new)
+            predicted_price = max(round(float(y_pred[0]), 2), 0)
+
+            return render(request, 'users/prediction.html', {
+                'y_pred': [predicted_price],
+                'input_data': {
+                    'Order_date': request.POST.get("Order_date"),
+                    'Brand': Brand,
+                    'Sneaker_Name': Sneaker_Name,
+                    'Retail_Price': Retail_Price,
+                    'Release_Date': request.POST.get("Release_Date"),
+                    'Shoe_Size': Shoe_Size,
+                    'Buyer': Buyer
+                }
+            })
+        except Exception as e:
+            return render(request, 'users/prediction.html', {'error': str(e)})
+    return render(request, 'users/prediction.html')
+
+# ===================== CSV Validation and Upload =====================
+REQUIRED_COLUMNS_CANON = {
+    'brand': {'Brand'},
+    'model': {'Model', 'Sneaker Name', 'Sneaker_Name'},
+    'release_date': {'Release Date', 'Release_Date'},
+    'retail_price': {'Retail Price', 'Retail_Price'},
+    'sale_price': {'Sale Price', 'Sale_Price'},
+    'condition': {'Condition'},
+    'region': {'Region', 'Buyer Region', 'Buyer'}
+}
+
+CRITICAL_FIELDS = ['brand', 'model', 'release_date', 'retail_price', 'sale_price', 'region']
+
+def _canonicalize_columns(df: pd.DataFrame):
+    colmap = {}
+    for canon, variants in REQUIRED_COLUMNS_CANON.items():
+        for v in df.columns:
+            if v.strip() in variants:
+                colmap[v] = canon
+                break
+    return colmap
+
+def validate_sneaker_csv(file_obj):
+    errors = []
+    warnings = []
+
+    try:
+        df = pd.read_csv(file_obj)
+    except Exception as e:
+        return False, [f"Unable to read CSV: {e}"], [], None
+
+    colmap = _canonicalize_columns(df)
+    df = df.rename(columns=colmap)
+
+    missing = [c for c in REQUIRED_COLUMNS_CANON.keys() if c not in df.columns]
+    if missing:
+        for m in missing:
+            examples = ", ".join(sorted(REQUIRED_COLUMNS_CANON[m]))
+            errors.append(f"Missing required column: '{m}' (accepted names: {examples})")
+
+    if errors:
+        return False, errors, warnings, None
+
+    for price_col in ['retail_price', 'sale_price']:
+        try:
+            df[price_col] = pd.to_numeric(df[price_col], errors='coerce')
+        except Exception:
+            errors.append(f"Column '{price_col}' must be numeric")
+
+    try:
+        df['release_date'] = pd.to_datetime(df['release_date'], errors='coerce')
+    except Exception:
+        errors.append("Column 'release_date' must be a valid date")
+
+    for field in CRITICAL_FIELDS:
+        if df[field].isna().any():
+            errors.append(f"Column '{field}' contains missing values")
+
+    if (df['retail_price'] < 0).any() or (df['sale_price'] < 0).any():
+        warnings.append("Negative prices detected; please verify.")
+
+    if errors:
+        return False, errors, warnings, None
+
+    preview = df.head(10)
+    return True, [], warnings, preview
+
+@require_http_methods(["GET", "POST"])
+def upload_data(request):
+    if request.method == "POST":
+        f = request.FILES.get("file")
+        if not f:
+            messages.error(request, "Please choose a CSV file to upload.")
+            return redirect('upload_data')
+
+        is_valid, errors, warnings, preview = validate_sneaker_csv(f)
+
+        if not is_valid:
+            for e in errors:
+                messages.error(request, e)
+            for w in warnings:
+                messages.warning(request, w)
+            if errors:
+                request.session['upload_errors'] = errors
+            return redirect('upload_data')
+
+        try:
+            upload_dir = os.path.join(settings.MEDIA_ROOT, "uploads")
+            os.makedirs(upload_dir, exist_ok=True)
+            from django.utils import timezone
+            ts = timezone.now().strftime("%Y%m%d-%H%M%S")
+            safe_name = f.name.replace(" ", "_")
+            path = os.path.join(upload_dir, f"{ts}_{safe_name}")
+
+            try:
+                f.seek(0)
+            except Exception:
+                pass
+
+            with open(path, "wb") as out:
+                for chunk in f.chunks():
+                    out.write(chunk)
+
+            try:
+                preview_html = preview.to_html(classes="table table-sm table-striped", index=False)
+                request.session['upload_preview_html'] = preview_html
+            except Exception:
+                pass
+
+            messages.success(request, "CSV is valid and has been uploaded successfully.")
+            return redirect('upload_data')
+        except Exception as e:
+            messages.error(request, f"Failed to save file: {e}")
+            return redirect('upload_data')
+
+    context = {}
+    try:
+        preview_html = request.session.pop('upload_preview_html')
+        if preview_html:
+            context['preview_html'] = preview_html
+    except KeyError:
+        pass
+    try:
+        upload_errors = request.session.pop('upload_errors')
+        if upload_errors:
+            context['upload_errors'] = upload_errors
+    except KeyError:
+        pass
+    return render(request, "users/upload.html", context)
+
+def prediction(request):
+    if request.method == "POST":
+        try:
+            path = settings.MEDIA_ROOT + "//" + "Clean_Shoe_Data.csv"
+            df = pd.read_csv(path, parse_dates=True)
+            df = df.rename(columns={
+                "Order Date": "Order_date",
+                "Sneaker Name": "Sneaker_Name",
+                "Sale Price": "Sale_Price",
+                "Retail Price": "Retail_Price",
+                "Release Date": "Release_Date",
+                "Shoe Size": "Shoe_Size",
+                "Buyer Region": "Buyer"
+            })
+            
+            def safe_date_convert(date_str):
+                try:
+                    return pd.to_datetime(date_str, errors='coerce').toordinal()
+                except:
+                    return dt.datetime(2023, 1, 1).toordinal()
+            
+            Order_date = safe_date_convert(request.POST.get("Order_date"))
+            Release_Date = safe_date_convert(request.POST.get("Release_Date"))
+            Retail_Price = float(request.POST.get("Retail_Price") or 0)
+            Shoe_Size = float(request.POST.get("Shoe_Size") or 0)
+            Brand = request.POST.get("Brand", "Unknown")
+            Sneaker_Name = request.POST.get("Sneaker_Name", "Unknown")
+            Buyer = request.POST.get("Buyer", "Unknown")
+
+            X = df.drop(['Sale_Price'], axis=1)
+            y = df['Sale_Price']
+            X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.2, random_state=42)
+            
+            object_cols = ['Sneaker_Name', 'Buyer', 'Brand']
+            OH_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+            OH_cols_train = pd.DataFrame(OH_encoder.fit_transform(X_train[object_cols]))
+            OH_cols_train.index = X_train.index
+            OH_cols_train.columns = OH_encoder.get_feature_names_out(object_cols)
+            
+            num_X_train = X_train.drop(object_cols, axis=1)
+            OH_X_train = pd.concat([num_X_train, OH_cols_train], axis=1)
+            
+            lm = RandomForestRegressor(n_estimators=100, random_state=42)
+            lm.fit(OH_X_train, y_train)
+            
+            new_data = pd.DataFrame({
+                'Order_date': [Order_date],
+                'Brand': [Brand],
+                'Sneaker_Name': [Sneaker_Name],
+                'Retail_Price': [Retail_Price],
+                'Release_Date': [Release_Date],
+                'Shoe_Size': [Shoe_Size],
+                'Buyer': [Buyer]
+            })
+            
+            new_data_object_cols = new_data[object_cols]
+            OH_cols_new = pd.DataFrame(OH_encoder.transform(new_data_object_cols))
+            OH_cols_new.index = new_data.index
+            OH_cols_new.columns = OH_encoder.get_feature_names_out(object_cols)
+            
+            num_X_new = new_data.drop(object_cols, axis=1)
+            OH_X_new = pd.concat([num_X_new, OH_cols_new], axis=1)
+            
+            # Align columns with training data
+            for col in OH_X_train.columns:
+                if col not in OH_X_new.columns:
+                    OH_X_new[col] = 0
+            OH_X_new = OH_X_new[OH_X_train.columns]
+            
+            y_pred = lm.predict(OH_X_new)
+            predicted_price = max(round(float(y_pred[0]), 2), 0)  # Ensure non-negative price
+            
+            return render(request, 'users/prediction.html', {
+                'y_pred': [predicted_price],
+                'input_data': {
+                    'Order_date': request.POST.get("Order_date"),
+                    'Brand': Brand,
+                    'Sneaker_Name': Sneaker_Name,
+                    'Retail_Price': Retail_Price,
+                    'Release_Date': request.POST.get("Release_Date"),
+                    'Shoe_Size': Shoe_Size,
+                    'Buyer': Buyer
+                }
+            })
+        except Exception as e:
+            return render(request, 'users/prediction.html', {'error': str(e)})
+    return render(request, 'users/prediction.html')
         import pandas as pd
         from django.conf import settings
 

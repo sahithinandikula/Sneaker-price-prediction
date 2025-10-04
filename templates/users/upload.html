@@ -1,0 +1,117 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block contents %}
+<section id="upload" class="d-flex align-items-center" style="min-height: 85vh;">
+  <div class="container" data-aos="fade-up">
+    <div class="row justify-content-center">
+      <div class="col-lg-10">
+
+        <div class="text-center mb-4">
+          <h2 class="fw-bold">
+            <i class="bi bi-cloud-upload text-primary me-2"></i>
+            Upload Sneaker Dataset
+          </h2>
+          <p class="text-muted mb-0">Validate your CSV before it’s used for training or visualization.</p>
+        </div>
+
+        {% if messages %}
+          <div class="mb-3">
+            {% for message in messages %}
+              <div class="alert alert-{{ message.tags }} alert-dismissible fade show shadow-sm" role="alert">
+                <i class="bi bi-info-circle me-1"></i>{{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <div class="card shadow-lg border-0">
+          <div class="card-body p-4 p-md-5">
+            <form method="post" enctype="multipart/form-data" id="uploadForm">
+              {% csrf_token %}
+              <div class="row g-3 align-items-end">
+                <div class="col-md-8">
+                  <label for="file" class="form-label fw-semibold">Choose CSV file</label>
+                  <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-file-earmark-arrow-up"></i></span>
+                    <input type="file" name="file" id="file" accept=".csv" class="form-control" required />
+                  </div>
+                  <div class="form-text">
+                    Max 20MB. Only .csv files are supported.
+                  </div>
+
+                </div>
+                <div class="col-md-4 text-md-end">
+                  <button type="submit" class="btn btn-primary px-4" id="submitBtn">
+                    <span class="btn-text"><i class="bi bi-check2-circle me-1"></i>Validate & Upload</span>
+                    <span class="btn-spinner d-none"><span class="spinner-border spinner-border-sm me-1"></span>Uploading…</span>
+                  </button>
+                </div>
+              </div>
+
+              <hr class="my-4">
+
+              <div class="row g-4">
+                <div class="col-lg-7">
+                  <h6 class="fw-bold mb-2"><i class="bi bi-list-check me-1 text-primary"></i> Required columns</h6>
+                  <div class="row row-cols-2 row-cols-md-3 g-2">
+                    <div class="col"><span class="badge rounded-pill bg-light text-dark border">Brand</span></div>
+                    <div class="col"><span class="badge rounded-pill bg-light text-dark border">Model</span></div>
+                    <div class="col"><span class="badge rounded-pill bg-light text-dark border">Release Date</span></div>
+                    <div class="col"><span class="badge rounded-pill bg-light text-dark border">Retail Price</span></div>
+                    <div class="col"><span class="badge rounded-pill bg-light text-dark border">Sale Price</span></div>
+                    <div class="col"><span class="badge rounded-pill bg-light text-dark border">Condition</span></div>
+                    <div class="col"><span class="badge rounded-pill bg-light text-dark border">Region</span></div>
+                  </div>
+                </div>
+                <div class="col-lg-5">
+                  <h6 class="fw-bold mb-2"><i class="bi bi-info-square me-1 text-primary"></i> Tips</h6>
+                  <ul class="small text-muted mb-0 ps-3">
+                    <li>Prices must be numeric (no currency symbols).</li>
+                    <li>Release Date must be a valid date (YYYY-MM-DD).</li>
+                    <li>No missing values in critical fields.</li>
+                  </ul>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        {% if preview_html %}
+          <div class="card shadow-sm border-0 mt-4" data-aos="fade-up" data-aos-delay="100">
+            <div class="card-header bg-white">
+              <h6 class="mb-0 fw-bold"><i class="bi bi-table me-1 text-primary"></i> Preview (first 10 rows)</h6>
+            </div>
+            <div class="card-body">
+              <div class="table-responsive">
+                {{ preview_html|safe }}
+              </div>
+            </div>
+          </div>
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  (function(){
+    const form = document.getElementById('uploadForm');
+    if(!form) return;
+    const btn = document.getElementById('submitBtn');
+    const text = btn?.querySelector('.btn-text');
+    const spin = btn?.querySelector('.btn-spinner');
+    form.addEventListener('submit', function(){
+      if(btn && text && spin){
+        text.classList.add('d-none');
+        spin.classList.remove('d-none');
+        btn.setAttribute('disabled', 'disabled');
+      }
+    });
+  })();
+</script>
+{% endblock %}
+
+
