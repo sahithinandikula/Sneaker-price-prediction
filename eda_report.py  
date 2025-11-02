@@ -1,0 +1,34 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+def generate_eda_report(file_path="dataset.csv"):
+    df = pd.read_csv(file_path)
+
+    # Summary
+    print("\n--- Dataset Shape ---")
+    print(df.shape)
+
+    print("\n--- Columns ---")
+    print(df.columns)
+
+    print("\n--- Data Types ---")
+    print(df.dtypes)
+
+    print("\n--- Missing Values ---")
+    print(df.isnull().sum())
+
+    print("\n--- Statistics ---")
+    print(df.describe())
+
+    # Example plot
+    plt.figure(figsize=(6,4))
+    sns.heatmap(df.corr(), annot=True, cmap="coolwarm")
+    plt.title("Correlation Heatmap")
+    plt.savefig("eda_correlation.png")
+    plt.close()
+
+if __name__ == "__main__":
+    generate_eda_report("dataset.csv")   # change file name if repo uses different CSV
+
+
